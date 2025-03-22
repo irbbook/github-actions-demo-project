@@ -17,18 +17,26 @@ jobs:
       - name: Build and tag the Docker image
         run: |
           docker build -t bookbigpw/recipe:latest .
-      
+
       - name: Push Docker image to registry
         run: docker push bookbigpw/recipe:latest
 
-      - name: Deploy to server
-        uses: appleboy/ssh-action@v0.1.10
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          password: ${{ secrets.SSH_PASSWORD }}
-          script: |
+      - name: Setup SSH via Cloudflare Tunnel
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "Host my-server" >> ~/.ssh/config
+          echo "  HostName ${{ secrets.SSH_HOST }}" >> ~/.ssh/config
+          echo "  User ${{ secrets.SSH_USER }}" >> ~/.ssh/config
+          echo "  ProxyCommand cloudflared access ssh --hostname %h" >> ~/.ssh/config
+          chmod 600 ~/.ssh/config
+
+      - name: Deploy to server via SSH
+        run: |
+          ssh -o StrictHostKeyChecking=no my-server << 'EOF'
             docker pull bookbigpw/recipe:latest
             docker stop your-app-container || true
             docker rm your-app-container || true
             docker run -d --name your-app-container -p 80:80 bookbigpw/recipe:latest
+          EOF
